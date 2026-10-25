@@ -9,7 +9,7 @@ def extract_pitch(filename):
     samplerate = source.samplerate
     # print("samplerate:", samplerate)
 
-    pitch_o = aubio.pitch("yinfft", buffersize, hopsize, samplerate)
+    pitch_o = aubio.pitch("yinfast", buffersize, hopsize, samplerate)
     pitch_o.set_unit("Hz")
     pitch_o.set_tolerance(tolerance)
     pitch_o.set_silence(-60.0)
@@ -25,12 +25,11 @@ def extract_pitch(filename):
 
         pitch = pitch_o(samples)[0]
         confidence = pitch_o.get_confidence()
-        # if(confidence<0.15): 
-            # continue
+        if(confidence<0.5): 
+            pitch = 0.0;
         pitches.append(pitch)
         confidences.append(confidence)
 
     # print(pitches)
     # print(confidences)
     return pitches
-
