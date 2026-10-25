@@ -1,5 +1,5 @@
 import aubio
-
+import math
 def extract_pitch(filename):
     buffersize = 2048
     hopsize = 256
@@ -26,7 +26,7 @@ def extract_pitch(filename):
         pitch = pitch_o(samples)[0]
         confidence = pitch_o.get_confidence()
         if(confidence<0.5): 
-            pitch = 0.0;
+            pitch = math.nan
         pitches.append(pitch)
         confidences.append(confidence)
 
