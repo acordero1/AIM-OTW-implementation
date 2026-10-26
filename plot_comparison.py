@@ -27,10 +27,11 @@ def plot_otw_dtw(file1, file2):
     # plt.plot(path[:,1], path[:,0], color="cyan", label="DTW")
     plt.plot(pathaubdio[:,1], pathaubdio[:,0], color="green", label="DTW")
     plt.title("OTW Cost Matrix")
-    plt.legend
+    plt.legend()
     plt.xlabel("Reference Index j")
     plt.ylabel("Time Index t")
     plt.show()
     return
 
-plot_otw_dtw("1.wav", "2.wav")
+if __name__ == "__main__":
+    plot_otw_dtw("1.wav", "2.wav")

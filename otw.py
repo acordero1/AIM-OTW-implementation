@@ -7,7 +7,8 @@ class OTW:
     c: search width parameter (from paper)
     max_run_count: paper
     """
-    def __init__(self, score, max_run_count=3, c=100):
+    def __init__(self, score, max_run_count=3, c=100, verbose=False):
+        self.verbose = verbose
         self.score = np.asarray(score)
         self.lenR = len(self.score)
         self.c = None if c is None else int(c)
@@ -94,7 +95,8 @@ class OTW:
             inc="row"
         else:
             inc="both"
-        print(f"step={self.step} t={t} j={j} inc={inc} row_min={row_min:.6f} col_min={col_min:.6f} prev_inc={self.prev_inc} run_ct={self.run_ct}")
+        if(self.verbose):
+            print(f"step={self.step} t={t} j={j} inc={inc} row_min={row_min:.6f} col_min={col_min:.6f} prev_inc={self.prev_inc} run_ct={self.run_ct}")
 
         return inc
 

@@ -1,8 +1,11 @@
 import aubio
 import math
+
+HOP_SIZE_GLOBAL = 256
+
 def extract_pitch(filename):
     buffersize = 2048
-    hopsize = 256
+    hopsize = HOP_SIZE_GLOBAL
     tolerance = 0.15
 
     source = aubio.source(filename, samplerate=0, hop_size=hopsize)
