@@ -20,8 +20,7 @@ def run_otw(file, ref_file):
     for u in live_pitches:
         j = otw.update(u)
         frames.append(j)
-        costs.append(otw.D_curr.copy())
-        acc_costs.append(otw.D_prev.copy())
+        costs.append(otw.D.copy())
     path = otw.get_path()
 
     print("len_ref =", len(ref_pitches), "final_j =", otw.get_path()[-1,1], "final_t =", otw.get_path()[-1,0])
@@ -62,5 +61,5 @@ def run_otw(file, ref_file):
     print("col,row,both:", col_moves, row_moves, np.sum((d[:,0]>0)&(d[:,1]>0)), "len(path):", len(p))
 
 
-    return live_pitches, frames, costs, acc_costs, path
+    return live_pitches, frames, costs, path
 

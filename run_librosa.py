@@ -14,7 +14,8 @@ def librosa_pitch(filename1, filename2):
             sr=sr2, frame_length=2048, hop_length=256, center=False)
     f02 = np.nan_to_num(f02)
 
-    C, D, path=dtw(f01, f02)
+    C = np.abs(f01[:, None] - f02[None, :])
+    D, path = librosa.sequence.dtw(C=C)
     path=np.array(path)
     return C, D, path
 

@@ -23,17 +23,22 @@ def dtw(seqA, seqB):
     path = [(i, j)]
 
     while(i>0 or j>0):
-        left = D[i, j-1] if j>0 else np.inf
-        up = D[i-1, j] if i>0 else np.inf
-        diag = D[i-1, j-1] if (i>0 and j>0) else np.inf
-
-        if(diag<=left and diag<=up):
-            i -= 1
+        if(i==0):
             j -= 1
-        elif(left<=up):
-            j -= 1    
-        else:
+        elif(j==0):
             i -= 1
+        else: 
+            left = D[i, j-1] if j>0 else np.inf
+            up = D[i-1, j] if i>0 else np.inf
+            diag = D[i-1, j-1] if (i>0 and j>0) else np.inf
+
+            if(diag<=left and diag<=up):
+                i -= 1
+                j -= 1
+            elif(left<=up):
+                j -= 1    
+            else:
+                i -= 1
 
         path.append((i,j))
     path.reverse()
