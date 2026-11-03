@@ -7,12 +7,13 @@ class OTW:
     c: search width parameter (from paper)
     max_run_count: paper
     """
-    def __init__(self, score, max_run_count=3, c=100, verbose=False):
+    def __init__(self, score, max_run_count=3, c=100, verbose=False, cost_mode="pitch"):
         self.verbose = verbose
         self.score = np.asarray(score)
         self.lenR = len(self.score)
         self.c = int(c)
         self.max_run_ct = int(max_run_count)
+        self.cost_mode = cost_mode
 
         #current time index
         self.t = 0
@@ -33,22 +34,49 @@ class OTW:
         self.prev_inc = None
         self.step = 0
         self.path = []
-        self.live = []
-        self.pending_live = []
-        self.used_live = []
+        
+        self.used_live = [] 
+        self.used_live_start = 0
+        self.finished = False
 
     def cost(self, u, v):
-        eps = 1e-8
-        if(not np.isfinite(u) or not np.isfinite(v)):
-            return 0.2
-        if(u<=eps and v<=eps):
-            return 0.0
-        if (u<=eps or v<=eps):
-            # penalty when one seq silence
-            return 0.2
-        return abs(np.log2(u+1e-6) - np.log2(v+1e-6))
-        # return abs(u - v)
+        eps=1e-8
+        if self.cost_mode == "pitch":
+            if not np.isfinite(u) or not np.isfinite(v):
+                return 0.2
+            if u <= eps and v <= eps:
+                return 0.0
+            if u <= eps or v <= eps:
+                return 0.2
+            return abs(np.log2(u + 1e-6) - np.log2(v + 1e-6))
 
+        elif self.cost_mode == "onset":
+            if not np.isfinite(u) or not np.isfinite(v):
+                return 0.2
+            # Onset strengths are nonnegative; compare their difference.
+            return abs(u - v)
+
+        elif self.cost_mode == "combined":
+            # u and v are [pitch, onset] feature vectors.
+            pitch_u, onset_u = u
+            pitch_v, onset_v = v
+
+            pitch_cost = self._pitch_cost(pitch_u, pitch_v)
+            onset_cost = abs(onset_u - onset_v)
+
+            return 0.5 * pitch_cost + 0.5 * onset_cost
+
+    def _pitch_cost(self, u, v):
+        eps = 1e-8
+
+        if not np.isfinite(u) or not np.isfinite(v):
+            return 0.2
+        if u <= eps and v <= eps:
+            return 0.0
+        if u <= eps or v <= eps:
+            return 0.2
+
+        return abs(np.log2(u + 1e-6) - np.log2(v + 1e-6))
 
     #shift window + D and L to local indexes
     def shift_window(self, new_t0, new_j0):
@@ -188,83 +216,149 @@ class OTW:
             return "both"
 
     def update(self, u):
-        self.live.append(u)
-        self.pending_live.append(u)
-        if(not self.initialized):
+        if not self.initialized:
             self.t = 0
             self.j = 0
             self.t0 = 0
             self.j0 = 0
             self.D.fill(np.inf)
             self.L.fill(0)
-            first_u = self.pending_live.pop(0)
-            self.used_live.append(first_u)
-            self.evaluate_path_cost(0, 0, first_u)
+            self.used_live.append(u)
+            self.evaluate_path_cost(0, 0, u)
             self.path.append((0, 0))
             self.initialized = True
-            self.step=0
+            self.step = 0
             self.prev_inc = None
             self.run_ct = 0
+            self.finished = False
             return self.j
 
-        if(self.j >= self.lenR-1):
-            self.pending_live.clear()
-            self.path.append((self.t, self.j))
-            return self.j
+        # make multiple ref frams and one live frame
+        while True:
+            if(self.finished):
+                return self.j
+            #if ref ended keep aadvancing live, keeping ref pos same
+            if self.j >= self.lenR - 1:
+                self.finished = True
+                return self.j
 
-        inc = self.get_inc()
-        advanced_t = False
-        advanced_j = False
-        if(inc in ("row", "both") and self.pending_live):
+            inc = self.get_inc()
+            # ref move, no live frame consumed
+            if inc == "column":
+                self.j += 1
+                self.move_window()
+                start_t = max(self.t0, self.t - self.c + 1)
+                for k in range(start_t, self.t + 1):
+                    self.evaluate_path_cost(k, self.j,self.used_live[k - self.used_live_start])
+                self.path.append((self.t, self.j))
+                self.run_ct = (self.run_ct + 1 if self.prev_inc == "column" else 1)
+                self.prev_inc = "column"
+                continue #go to start of loop
+
+            # Row or diag, consume live frame.
+            if inc not in ("row", "both"):
+                raise RuntimeError(f"Unexpected OTW move: {inc}")
+
             self.t += 1
-            u_t = self.pending_live.pop(0) #if advance t then consume pending frame
-            self.used_live.append(u_t)
+            self.used_live.append(u)
             self.move_window()
-            start_j = max(self.j0, self.j-self.c+1)
-            for k in range(start_j, self.j+1):
-                self.evaluate_path_cost(self.t, k, u_t)
-            advanced_t = True
-        if(inc in ("column", "both") and self.j<self.lenR-1):
-            self.j += 1
-            self.move_window()
-            start_t = max(self.t0, self.t-self.c+1)
-            for k in range(start_t, self.t+1):
-                self.evaluate_path_cost(k, self.j, self.used_live[k])
-            advanced_j = True
+            drop = self.t0 - self.used_live_start #keep live list in window c
+            if(drop>0):
+                self.used_live = self.used_live[drop:]
+                self.used_live_start = self.t0
+            start_j = max(self.j0, self.j - self.c + 1)
+            for k in range(start_j, self.j + 1):
+                self.evaluate_path_cost(self.t, k, u)
 
-        if(advanced_t and advanced_j):
-            inc = "both"
-        elif(advanced_t):
-            inc = "row"
-        elif(advanced_j):
-            inc = "column"
-        else:
-            inc = None
+            if(inc == "both"):
+                self.j += 1
+                self.move_window()
+                start_t = max(self.t0, self.t - self.c + 1)
+                for k in range(start_t, self.t + 1):
+                    self.evaluate_path_cost(k, self.j, self.used_live[k - self.used_live_start])
+                self.run_ct = 0
+                self.prev_inc = None
 
-        self.path.append((self.t, self.j))
+            else:  #row
+                self.run_ct = (self.run_ct + 1 if self.prev_inc == "row" else 1)
+                self.prev_inc = "row"
 
-        #run ct logic:
-        if(inc=="both"):
-            self.run_ct = 0
-            self.prev_inc = None
-        elif(inc is not None):
-            if(inc == self.prev_inc):
-                self.run_ct += 1
-            else:
-                self.run_ct = 1
-            self.prev_inc = inc
+            self.path.append((self.t, self.j))
+            self.step += 1
+            if(self.j>=self.lenR-1):
+                self.finished = True
+            return self.j
+#booooo old
+    # def update(self, u):
+    #     self.live.append(u)
+    #     self.pending_live.append(u)
+    #     if(not self.initialized):
+    #         self.t = 0
+    #         self.j = 0
+    #         self.t0 = 0
+    #         self.j0 = 0
+    #         self.D.fill(np.inf)
+    #         self.L.fill(0)
+    #         first_u = self.pending_live.pop(0)
+    #         self.used_live.append(first_u)
+    #         self.evaluate_path_cost(0, 0, first_u)
+    #         self.path.append((0, 0))
+    #         self.initialized = True
+    #         self.step=0
+    #         self.prev_inc = None
+    #         self.run_ct = 0
+    #         return self.j
 
-        self.step += 1
+    #     if(self.j >= self.lenR-1):
+    #         self.pending_live.clear()
+    #         self.path.append((self.t, self.j))
+    #         return self.j
 
-        # print(
-        #     f"incoming={len(self.live)-1}, "
-        #     f"t={self.t}, j={self.j}, "
-        #     f"inc={inc},"
-        #     f"pending={len(self.pending_live)}, "
-        #     f"prev={self.prev_inc}, run={self.run_ct}"
-        # )
+    #     inc = self.get_inc()
+    #     advanced_t = False
+    #     advanced_j = False
+    #     if(inc in ("row", "both") and self.pending_live):
+    #         self.t += 1
+    #         u_t = self.pending_live.pop(0) #if advance t then consume pending frame
+    #         self.used_live.append(u_t)
+    #         self.move_window()
+    #         start_j = max(self.j0, self.j-self.c+1)
+    #         for k in range(start_j, self.j+1):
+    #             self.evaluate_path_cost(self.t, k, u_t)
+    #         advanced_t = True
+    #     if(inc in ("column", "both") and self.j<self.lenR-1):
+    #         self.j += 1
+    #         self.move_window()
+    #         start_t = max(self.t0, self.t-self.c+1)
+    #         for k in range(start_t, self.t+1):
+    #             self.evaluate_path_cost(k, self.j, self.used_live[k])
+    #         advanced_j = True
+
+    #     if(advanced_t and advanced_j):
+    #         inc = "both"
+    #     elif(advanced_t):
+    #         inc = "row"
+    #     elif(advanced_j):
+    #         inc = "column"
+    #     else:
+    #         inc = None
+
+    #     self.path.append((self.t, self.j))
+
+    #     #run ct logic:
+    #     if(inc=="both"):
+    #         self.run_ct = 0
+    #         self.prev_inc = None
+    #     elif(inc is not None):
+    #         if(inc == self.prev_inc):
+    #             self.run_ct += 1
+    #         else:
+    #             self.run_ct = 1
+    #         self.prev_inc = inc
+
+    #     self.step += 1
     
-        return self.j
+    #     return self.j
 
     def get_path(self):
         return(np.asarray(self.path, dtype=int))
