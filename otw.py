@@ -38,16 +38,16 @@ class OTW:
         self.used_live = []
 
     def cost(self, u, v):
+        # u, v: scalars or arrays (broadcast); returns same shape
         eps = 1e-8
-        if(not np.isfinite(u) or not np.isfinite(v)):
-            return 0.2
-        if(u<=eps and v<=eps):
-            return 0.0
-        if (u<=eps or v<=eps):
-            # penalty when one seq silence
-            return 0.2
-        return abs(np.log2(u+1e-6) - np.log2(v+1e-6))
-        # return abs(u - v)
+        u = np.asarray(u, dtype=float)
+        v = np.asarray(v, dtype=float)
+        u_on = np.isfinite(u) & (u>eps)
+        v_on = np.isfinite(v) & (v>eps)
+        # semitone distance saturating at 6, scaled to [0,1] (score-follow dixon_pitch)
+        semis = 12*np.abs(np.log2(np.where(u_on, u, 1.0)) - np.log2(np.where(v_on, v, 1.0)))
+        pitched = np.minimum(semis, 6.0)/6.0
+        return np.where(u_on & v_on, pitched, np.where(u_on != v_on, 1.0, 0.0))
 
 
     #shift window + D and L to local indexes
@@ -92,7 +92,13 @@ class OTW:
             return np.inf
         return D/L
 
-    def evaluate_path_cost(self, t, j, u):
+    #vectorized path_cost over slices of D and L
+    def norm_cost(self, D, L):
+        ok = np.isfinite(D) & (L>0)
+        return np.where(ok, D/np.where(ok, L, 1.0), np.inf)
+
+    def evaluate_path_cost(self, t, j, C_tj):
+        # C_tj: precomputed local cost of cell (t, j)
         if(j<0  or j>=self.lenR):
             return
 
@@ -100,41 +106,37 @@ class OTW:
         ji = j - self.j0
         if not(0<=ti<self.c and 0<=ji<self.c):
             return
-        
-        C_tj = self.cost(u, self.score[j])
 
         if(t==0 and j==0): #first cell
             self.D[ti, ji] = C_tj
             self.L[ti, ji] = 1
             return
         
-        candidates = []
+        # best predecessor by normalized cost D/L; ties keep first of left, up, diagonal.
+        # .item() + scalar compares: this runs ~c times per frame, numpy scalars are slow here
+        best_D = best_L = None
+        best_r = np.inf
+        D, L = self.D, self.L
         if(ji>0): #left
-            D_left = self.D[ti, ji-1]
-            L_left = self.L[ti, ji-1]
-            if(np.isfinite(D_left) and L_left>0):
-                candidates.append((D_left, L_left))
+            d, l = D.item(ti, ji-1), L.item(ti, ji-1)
+            if(l>0 and d<np.inf and d/l<best_r):
+                best_D, best_L, best_r = d, l, d/l
         if(ti>0): #up
-            D_up = self.D[ti-1, ji]
-            L_up = self.L[ti-1, ji]
-            if(np.isfinite(D_up) and L_up>0):
-                candidates.append((D_up, L_up)) 
+            d, l = D.item(ti-1, ji), L.item(ti-1, ji)
+            if(l>0 and d<np.inf and d/l<best_r):
+                best_D, best_L, best_r = d, l, d/l
         if(ti>0 and ji>0): #diagonal
-            D_diag = self.D[ti-1, ji-1]
-            L_diag = self.L[ti-1, ji-1]
-            if(np.isfinite(D_diag) and L_diag>0):
-                candidates.append((D_diag, L_diag)) 
+            d, l = D.item(ti-1, ji-1), L.item(ti-1, ji-1)
+            if(l>0 and d<np.inf and d/l<best_r):
+                best_D, best_L, best_r = d, l, d/l
 
-        if(not candidates):
-            self.D[ti, ji] = np.inf
-            self.L[ti, ji] = 0
+        if(best_L is None):
+            D[ti, ji] = np.inf
+            L[ti, ji] = 0
             return
-        
-        best_D, best_L = min(candidates, key=lambda x:x[0]/x[1]) #look 1st elem
 
-        self.D[ti, ji] = C_tj + best_D
-        self.L[ti, ji] = best_L + 1
-        return
+        D[ti, ji] = C_tj + best_D
+        L[ti, ji] = best_L + 1
 
 
     #path movement decision (not backpass)
@@ -150,23 +152,25 @@ class OTW:
             if self.prev_inc =="column":
                 return "row"
 
+        # accum cost across t and all j in window; first (lowest-index) minimum wins ties
         row_start = max(self.j0, self.j-self.c+1)
-        row_min = np.inf
+        row_vals = self.norm_cost(self.D[self.t-self.t0, row_start-self.j0:self.j-self.j0+1],
+                                  self.L[self.t-self.t0, row_start-self.j0:self.j-self.j0+1])
         row_min_j = self.j
-        for k in range(row_start, self.j+1):
-            val = self.path_cost(self.t, k) # getaccum cost across t, and all j in window
-            if(val < row_min):
-                row_min = val
-                row_min_j = k
+        row_min = np.inf
+        if(np.isfinite(row_vals).any()):
+            a = int(np.argmin(row_vals))
+            row_min, row_min_j = row_vals[a], row_start+a
 
+        # accum cost across all t in window and j
         col_start = max(self.t0, self.t-self.c+1)
-        col_min = np.inf
+        col_vals = self.norm_cost(self.D[col_start-self.t0:self.t-self.t0+1, self.j-self.j0],
+                                  self.L[col_start-self.t0:self.t-self.t0+1, self.j-self.j0])
         col_min_t = self.t
-        for k in range(col_start, self.t+1):
-            val = self.path_cost(k, self.j) # getaccum cost across all t in wind, and j
-            if(val < col_min):                    
-                col_min = val
-                col_min_t = k
+        col_min = np.inf
+        if(np.isfinite(col_vals).any()):
+            a = int(np.argmin(col_vals))
+            col_min, col_min_t = col_vals[a], col_start+a
         # print(
         #     f"current: ({self.t}, {self.j}), "
         #     f"row_min_j={row_min_j}, "
@@ -187,6 +191,15 @@ class OTW:
                 return "column"
             return "both"
 
+    #advance j and fill the new column over the window
+    def add_column(self):
+        self.j += 1
+        self.move_window()
+        start_t = max(self.t0, self.t-self.c+1)
+        costs = self.cost(np.asarray(self.used_live[start_t:self.t+1], dtype=float), self.score[self.j])
+        for n, k in enumerate(range(start_t, self.t+1)):
+            self.evaluate_path_cost(k, self.j, costs[n])
+
     def update(self, u):
         self.live.append(u)
         self.pending_live.append(u)
@@ -199,7 +212,7 @@ class OTW:
             self.L.fill(0)
             first_u = self.pending_live.pop(0)
             self.used_live.append(first_u)
-            self.evaluate_path_cost(0, 0, first_u)
+            self.evaluate_path_cost(0, 0, self.cost(first_u, self.score[0]))
             self.path.append((0, 0))
             self.initialized = True
             self.step=0
@@ -212,7 +225,10 @@ class OTW:
             self.path.append((self.t, self.j))
             return self.j
 
-        inc = self.get_inc()
+        decided = self.get_inc()
+        # every arriving live frame must be consumed, otherwise pending_live grows
+        # and t falls further behind the live stream on each "column" decision
+        inc = "both" if decided == "column" else decided
         advanced_t = False
         advanced_j = False
         if(inc in ("row", "both") and self.pending_live):
@@ -221,18 +237,17 @@ class OTW:
             self.used_live.append(u_t)
             self.move_window()
             start_j = max(self.j0, self.j-self.c+1)
-            for k in range(start_j, self.j+1):
-                self.evaluate_path_cost(self.t, k, u_t)
+            costs = self.cost(u_t, self.score[start_j:self.j+1])
+            for n, k in enumerate(range(start_j, self.j+1)):
+                self.evaluate_path_cost(self.t, k, costs[n])
             advanced_t = True
         if(inc in ("column", "both") and self.j<self.lenR-1):
-            self.j += 1
-            self.move_window()
-            start_t = max(self.t0, self.t-self.c+1)
-            for k in range(start_t, self.t+1):
-                self.evaluate_path_cost(k, self.j, self.used_live[k])
+            self.add_column()
             advanced_j = True
 
-        if(advanced_t and advanced_j):
+        if(decided == "column" and advanced_j):
+            inc = "column" # count the run by what was decided, not by the forced row
+        elif(advanced_t and advanced_j):
             inc = "both"
         elif(advanced_t):
             inc = "row"
@@ -253,6 +268,13 @@ class OTW:
             else:
                 self.run_ct = 1
             self.prev_inc = inc
+
+        # let the reference catch up without waiting for new input (column-only moves)
+        while(self.j<self.lenR-1 and self.get_inc()=="column"):
+            self.add_column()
+            self.path.append((self.t, self.j))
+            self.run_ct = self.run_ct+1 if self.prev_inc=="column" else 1
+            self.prev_inc = "column"
 
         self.step += 1
 

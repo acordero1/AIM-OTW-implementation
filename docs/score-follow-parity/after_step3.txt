@@ -1,0 +1,31 @@
+Etude1
+  this repo          mean=    176ms median=    78ms <250ms= 74.7%  0.713 ms/frame
+  score-follow pitch mean=    204ms median=    84ms <250ms= 69.7%  0.188 ms/frame
+Etude2
+  this repo          mean=    289ms median=    65ms <250ms= 77.1%  0.723 ms/frame
+  score-follow pitch mean=    376ms median=   106ms <250ms= 69.5%  0.043 ms/frame
+arpeggios
+  this repo          mean=     23ms median=    20ms <250ms=100.0%  0.738 ms/frame
+  score-follow pitch mean=     19ms median=    10ms <250ms=100.0%  0.044 ms/frame
+cello_range
+  this repo          mean=    234ms median=   136ms <250ms= 64.6%  0.685 ms/frame
+  score-follow pitch mean=    250ms median=   163ms <250ms= 63.0%  0.043 ms/frame
+d_major_scale
+  this repo          mean=    217ms median=   170ms <250ms= 62.9%  0.713 ms/frame
+  score-follow pitch mean=    221ms median=   175ms <250ms= 63.0%  0.042 ms/frame
+melody_repeats
+  this repo          mean=    109ms median=    81ms <250ms= 92.1%  0.819 ms/frame
+  score-follow pitch mean=     94ms median=    46ms <250ms= 92.9%  0.046 ms/frame
+mixed_rests
+  this repo          mean=     68ms median=    39ms <250ms= 95.8%  0.612 ms/frame
+  score-follow pitch mean=     70ms median=    51ms <250ms= 95.7%  0.041 ms/frame
+scale
+  this repo          mean=    113ms median=    85ms <250ms= 89.2%  0.718 ms/frame
+  score-follow pitch mean=    119ms median=    92ms <250ms= 87.1%  0.041 ms/frame
+spaced_notes
+  this repo          mean=    112ms median=    68ms <250ms= 87.2%  0.616 ms/frame
+  score-follow pitch mean=    133ms median=    98ms <250ms= 84.1%  0.042 ms/frame
+
+OVERALL (pooled frames; mean of per-case medians)
+this repo            mean=    202ms case-median-avg=    83ms <250ms= 78.5%  0.712 ms/frame
+score-follow pitch   mean=    241ms case-median-avg=    92ms <250ms= 74.4%  0.071 ms/frame
