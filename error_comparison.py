@@ -25,7 +25,7 @@ def run_offline_dtw(ref, live):
     u = np.array(live)[:, None] # live is col and ref is row such that every live frame an be compared with every reference frame
     v = np.array(ref)[None, :]
     cost = np.abs(np.log2(u + 1e-6) - np.log2(v + 1e-6))
-    cost = np.where(np.isnan(u) | np.isnan(v), 0.2, cost)
+    cost = np.where(np.isnan(u) | np.isnan(v) | (u <= 0) | (v <= 0), 0.2, cost)
     path = librosa.sequence.dtw(C=cost, step_sizes_sigma=np.array([[1, 1], [0, 1], [1, 0]]))[1]
     best_ref_frame = {}
 
